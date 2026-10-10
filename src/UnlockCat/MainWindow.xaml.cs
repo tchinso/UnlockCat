@@ -55,6 +55,17 @@ public partial class MainWindow : Window
             FilePathBox.Text = dialog.FileName;
     }
 
+    private void BrowseFolder_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "검사할 폴더 선택",
+            Multiselect = false
+        };
+        if (dialog.ShowDialog(this) == true)
+            FilePathBox.Text = dialog.FolderName;
+    }
+
     private void TargetTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!ReferenceEquals(e.Source, TargetTabs))
@@ -67,12 +78,21 @@ public partial class MainWindow : Window
     {
         return TargetTabs.SelectedIndex switch
         {
-            0 => (TargetKind.File, FilePathBox.Text.Trim()),
+            0 => PathTarget(FilePathBox.Text.Trim()),
             1 => (TargetKind.Volume, VolumeBox.SelectedItem is DriveChoice drive &&
                                       VolumeBox.Text == drive.Display ? drive.Root : VolumeBox.Text.Trim()),
             2 => (TargetKind.Port, PortBox.Text.Trim()),
             _ => throw new InvalidOperationException("검사 대상을 선택하세요.")
         };
+    }
+
+    private static (TargetKind Kind, string Target) PathTarget(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return (TargetKind.File, path);
+
+        var attributes = File.GetAttributes(path);
+        return ((attributes & FileAttributes.Directory) != 0 ? TargetKind.Directory : TargetKind.File, path);
     }
 
     private async void Scan_Click(object sender, RoutedEventArgs e)
@@ -165,7 +185,13 @@ public partial class MainWindow : Window
         }
         else
         {
-            var result = kind == TargetKind.File ? FileLockScanner.ScanFile(target) : FileLockScanner.ScanVolume(target);
+            var result = kind switch
+            {
+                TargetKind.File => FileLockScanner.ScanFile(target),
+                TargetKind.Directory => FileLockScanner.ScanDirectory(target),
+                TargetKind.Volume => FileLockScanner.ScanVolume(target),
+                _ => throw new InvalidOperationException("알 수 없는 검사 대상입니다.")
+            };
             foreach (var owner in result.Owners)
             {
                 AddEvidence(owner.Pid, $"{owner.Kind}: {owner.EvidencePath}" +
@@ -392,7 +418,7 @@ public partial class MainWindow : Window
             {
                 Content = $"{service.Name} — {service.DisplayName} (PID {service.ProcessId})",
                 IsChecked = preferred.Contains(service.Name),
-                Foreground = System.Windows.Media.Brushes.White,
+                Foreground = (System.Windows.Media.Brush)FindResource("TextBrush"),
                 Margin = new Thickness(0, 0, 0, 9)
             };
             list.Children.Add(box);
@@ -480,5 +506,5 @@ public partial class MainWindow : Window
             Process.CanTerminate ? "종료 가능" : "신원 확인 불가";
     }
 
-    private enum TargetKind { File, Volume, Port }
+    private enum TargetKind { File, Directory, Volume, Port }
 }

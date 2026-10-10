@@ -25,22 +25,37 @@ if (args.Length > 0)
     }
 }
 
-var temporaryFile = Path.Combine(Path.GetTempPath(), $"UnlockCat-smoke-{Guid.NewGuid():N}.txt");
+var temporaryDirectory = Path.Combine(Path.GetTempPath(), $"UnlockCat-smoke-{Guid.NewGuid():N}");
+var nestedDirectory = Path.Combine(temporaryDirectory, "nested");
+var temporaryFile = Path.Combine(nestedDirectory, "held.txt");
+var siblingDirectory = temporaryDirectory + "-outside";
+var siblingFile = Path.Combine(siblingDirectory, "held.txt");
 var children = new List<Process>();
+Directory.CreateDirectory(nestedDirectory);
+Directory.CreateDirectory(siblingDirectory);
 File.WriteAllText(temporaryFile, "UnlockCat smoke test");
+File.WriteAllText(siblingFile, "Outside the selected folder");
 try
 {
-    using (var holder = Launch("hold-file", temporaryFile))
     {
+        var holder = Launch("hold-file", temporaryFile);
         Assert(holder.StandardOutput.ReadLine() == "READY", "File holder did not start.");
+        var outsideHolder = Launch("hold-file", siblingFile);
+        Assert(outsideHolder.StandardOutput.ReadLine() == "READY", "Outside file holder did not start.");
         var file = FileLockScanner.ScanFile(temporaryFile);
         Assert(file.Owners.Any(o => o.Pid == holder.Id && o.Kind == "file-handle"),
             "Held file was not found through handle enumeration.");
+        var directory = FileLockScanner.ScanDirectory(temporaryDirectory);
+        Assert(directory.Owners.Any(o => o.Pid == holder.Id &&
+            o.EvidencePath.Contains("nested", StringComparison.OrdinalIgnoreCase)),
+            "Held nested file was not found in directory scan.");
+        Assert(!directory.Owners.Any(o => o.Pid == outsideHolder.Id),
+            "Directory scan included a file outside the selected folder.");
         var root = Path.GetPathRoot(temporaryFile)!;
         var volume = FileLockScanner.ScanVolume(root);
         Assert(volume.Owners.Any(o => o.Pid == holder.Id && o.EvidencePath.Contains(Path.GetFileName(temporaryFile), StringComparison.OrdinalIgnoreCase)),
             "Held file was not found in volume scan.");
-        Console.WriteLine($"File and volume lookup: PASS (inaccessible processes: {file.InaccessibleProcessCount}/{volume.InaccessibleProcessCount})");
+        Console.WriteLine($"File, directory and volume lookup: PASS (inaccessible processes: {file.InaccessibleProcessCount}/{directory.InaccessibleProcessCount}/{volume.InaccessibleProcessCount})");
 
         var identity = ProcessControl.Describe(holder.Id);
         Assert(identity.CreationTimeFileTime.HasValue, "Process identity could not be read.");
@@ -55,8 +70,8 @@ try
         Console.WriteLine("Verified force termination and release: PASS");
     }
 
-    using (var holder = Launch("hold-port"))
     {
+        var holder = Launch("hold-port");
         Assert(int.TryParse(holder.StandardOutput.ReadLine(), out var port), "Port holder did not start.");
         var scanner = new PortScanner();
         Assert(scanner.Scan($"localhost:{port}").Any(o => o.ProcessId == holder.Id && o.TcpState == TcpState.Listen),
@@ -81,10 +96,19 @@ finally
 {
     foreach (var child in children)
     {
-        try { if (!child.HasExited) child.Kill(entireProcessTree: true); }
+        try
+        {
+            if (!child.HasExited)
+            {
+                child.Kill(entireProcessTree: true);
+                child.WaitForExit(2000);
+            }
+        }
         catch { }
+        child.Dispose();
     }
-    try { File.Delete(temporaryFile); } catch { }
+    try { Directory.Delete(temporaryDirectory, recursive: true); } catch { }
+    try { Directory.Delete(siblingDirectory, recursive: true); } catch { }
 }
 
 Process Launch(params string[] childArgs)

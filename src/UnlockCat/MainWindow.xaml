@@ -21,19 +21,20 @@
       </StackPanel>
     </StackPanel>
 
-    <TabControl x:Name="TargetTabs" Grid.Row="1" Height="116" Background="{StaticResource PanelBrush}"
-                Foreground="#10151D" SelectionChanged="TargetTabs_SelectionChanged">
-      <TabItem Header="파일">
+    <TabControl x:Name="TargetTabs" Grid.Row="1" Height="116" SelectionChanged="TargetTabs_SelectionChanged">
+      <TabItem Header="파일·폴더">
         <Grid Margin="12">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />
             <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="Auto" />
           </Grid.ColumnDefinitions>
           <StackPanel>
-            <TextBlock Text="잠긴 파일의 전체 경로" Margin="0,0,0,5" />
-            <TextBox x:Name="FilePathBox" Text="C:\path\to\file.txt" />
+            <TextBlock Text="파일 또는 폴더의 전체 경로" Margin="0,0,0,5" />
+            <TextBox x:Name="FilePathBox" />
           </StackPanel>
-          <Button Grid.Column="1" Content="찾아보기" Margin="10,20,0,0" Click="BrowseFile_Click" />
+          <Button Grid.Column="1" Content="파일 선택" Margin="10,20,0,0" Click="BrowseFile_Click" />
+          <Button Grid.Column="2" Content="폴더 선택" Margin="8,20,0,0" Click="BrowseFolder_Click" />
         </Grid>
       </TabItem>
       <TabItem Header="이동식 디스크">
@@ -58,7 +59,7 @@
         <ColumnDefinition Width="Auto" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
-      <Button x:Name="ScanButton" Grid.Column="0" Content="점유 프로세스 검색" Background="#17634E" Click="Scan_Click" />
+      <Button x:Name="ScanButton" Grid.Column="0" Content="점유 프로세스 검색" Background="#DFF1E9" Foreground="#0E543E" BorderBrush="#88B8A3" Click="Scan_Click" />
       <Button x:Name="StopServiceButton" Grid.Column="1" Content="서비스 중지" Click="StopServices_Click" IsEnabled="False" />
       <Button x:Name="KillSelectedButton" Grid.Column="2" Content="선택 프로세스 강제 종료" Click="KillSelected_Click" IsEnabled="False" />
       <Button x:Name="KillAllButton" Grid.Column="3" Content="모두 강제 종료" Click="KillAll_Click" IsEnabled="False" />
@@ -68,9 +69,10 @@
 
     <DataGrid x:Name="ResultsGrid" Grid.Row="3" AutoGenerateColumns="False" SelectionMode="Extended"
               IsReadOnly="True" CanUserAddRows="False" SelectionChanged="ResultsGrid_SelectionChanged"
-              Background="{StaticResource PanelBrush}" Foreground="#F1F5F9" RowBackground="#1A222D"
-              AlternatingRowBackground="#222E3A" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
-              BorderBrush="#39495A" Margin="0,0,0,12">
+              Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" RowBackground="#FFFFFF"
+              AlternatingRowBackground="#F6F9FA" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+              BorderBrush="{StaticResource BorderBrush}" HorizontalGridLinesBrush="#E3E9ED"
+              VerticalGridLinesBrush="#E3E9ED" Margin="0,0,0,12">
       <DataGrid.Columns>
         <DataGridTextColumn Header="PID" Binding="{Binding ProcessId}" Width="75" />
         <DataGridTextColumn Header="프로세스" Binding="{Binding ProcessName}" Width="125" />
@@ -86,11 +88,11 @@
         <ColumnDefinition Width="*" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
-      <GroupBox Header="선택 항목의 점유 리소스" Foreground="#F1F5F9" Margin="0,0,6,0">
+      <GroupBox Header="선택 항목의 점유 리소스" Margin="0,0,6,0">
         <TextBox x:Name="EvidenceBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                  BorderThickness="0" MinHeight="0" />
       </GroupBox>
-      <GroupBox Grid.Column="1" Header="검색 및 종료 기록" Foreground="#F1F5F9" Margin="6,0,0,0">
+      <GroupBox Grid.Column="1" Header="검색 및 종료 기록" Margin="6,0,0,0">
         <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                  BorderThickness="0" MinHeight="0" />
       </GroupBox>

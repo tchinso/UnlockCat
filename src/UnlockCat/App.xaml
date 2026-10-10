@@ -3,37 +3,80 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
   <Application.Resources>
-    <SolidColorBrush x:Key="BackgroundBrush" Color="#10151D" />
-    <SolidColorBrush x:Key="PanelBrush" Color="#1A222D" />
-    <SolidColorBrush x:Key="MutedBrush" Color="#9BACBD" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#80E2C1" />
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="TextBrush" Color="#17212B" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#546575" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#17634E" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#CAD4DC" />
     <Style TargetType="Window">
       <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
-      <Setter Property="Foreground" Value="#F1F5F9" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
       <Setter Property="FontFamily" Value="Malgun Gothic" />
     </Style>
     <Style TargetType="TextBlock">
-      <Setter Property="Foreground" Value="#F1F5F9" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+    <Style TargetType="TabControl">
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    </Style>
+    <Style TargetType="TabItem">
+      <Setter Property="Background" Value="#F1F5F7" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="Padding" Value="12,5" />
     </Style>
     <Style TargetType="Button">
-      <Setter Property="Background" Value="#2C3A49" />
-      <Setter Property="Foreground" Value="#F1F5F9" />
-      <Setter Property="BorderBrush" Value="#435466" />
+      <Setter Property="Background" Value="#EEF2F4" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
       <Setter Property="Padding" Value="14,8" />
       <Setter Property="Margin" Value="0,0,8,0" />
       <Setter Property="MinHeight" Value="36" />
+      <Style.Triggers>
+        <Trigger Property="IsEnabled" Value="False">
+          <Setter Property="Background" Value="#F1F3F5" />
+          <Setter Property="Foreground" Value="#65727D" />
+          <Setter Property="BorderBrush" Value="#D6DEE4" />
+        </Trigger>
+      </Style.Triggers>
     </Style>
     <Style TargetType="TextBox">
-      <Setter Property="Background" Value="#111923" />
-      <Setter Property="Foreground" Value="#F1F5F9" />
-      <Setter Property="BorderBrush" Value="#425466" />
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+      <Setter Property="CaretBrush" Value="{StaticResource TextBrush}" />
       <Setter Property="Padding" Value="9,7" />
       <Setter Property="MinHeight" Value="36" />
     </Style>
     <Style TargetType="ComboBox">
-      <Setter Property="Background" Value="#E6EEF6" />
-      <Setter Property="Foreground" Value="#10151D" />
+      <Setter Property="Background" Value="{StaticResource PanelBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
       <Setter Property="MinHeight" Value="36" />
+    </Style>
+    <Style TargetType="GroupBox">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+    </Style>
+    <Style TargetType="DataGridColumnHeader">
+      <Setter Property="Background" Value="#EDF2F5" />
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+      <Setter Property="Padding" Value="8,6" />
+    </Style>
+    <Style TargetType="DataGridCell">
+      <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+      <Setter Property="BorderBrush" Value="#E3E9ED" />
+      <Setter Property="Padding" Value="8,4" />
+      <Style.Triggers>
+        <Trigger Property="IsSelected" Value="True">
+          <Setter Property="Background" Value="#D9F1E8" />
+          <Setter Property="Foreground" Value="#133A2D" />
+          <Setter Property="BorderBrush" Value="#9AC8B8" />
+        </Trigger>
+      </Style.Triggers>
     </Style>
   </Application.Resources>
 </Application>

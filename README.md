@@ -6,7 +6,7 @@ Windows 11 22H2 이상을 대상으로 만든 파일·디스크·포트 점유 �
 
 ## 사용
 
-1. **파일**: 잠긴 파일의 전체 경로를 입력하고 **점유 프로세스 검색**을 누릅니다.
+1. **파일·폴더**: 파일을 찾아보거나 폴더를 선택한 뒤 **점유 프로세스 검색**을 누릅니다. 폴더를 선택하면 그 폴더와 하위 항목의 점유를 찾습니다.
 2. **이동식 디스크**: 드라이브를 선택하고 검색합니다. Windows에서 `Fixed`로 분류하는 USB 외장 디스크도 선택할 수 있습니다.
 3. **포트**: `localhost:5000`, `5000`, `127.0.0.1:5000`, `[::1]:5000` 형식으로 검색합니다.
 
@@ -17,6 +17,8 @@ Windows 11 22H2 이상을 대상으로 만든 파일·디스크·포트 점유 �
 ```powershell
 unlockcat scan file "C:\temp\busy.txt"
 unlockcat unlock file "C:\temp\busy.txt"
+unlockcat scan folder "C:\temp\project"
+unlockcat unlock folder "C:\temp\project"
 unlockcat scan volume E:\
 unlockcat unlock volume E:\
 unlockcat scan port localhost:5000
@@ -30,6 +32,7 @@ unlockcat unlock service Spooler
 ## 구현
 
 - 파일: Windows Restart Manager와 Process Snapshotting API로 파일 핸들 및 메모리 매핑을 찾습니다. 파일 식별자를 조회할 수 있으면 하드 링크도 식별합니다.
+- 폴더: 선택한 폴더와 물리적인 하위 경로에 열린 파일·폴더 핸들 및 메모리 매핑을 찾습니다. 하위 파일을 하나씩 여는 대신 프로세스 스냅샷에서 경로를 대조합니다.
 - 디스크: 파일을 전부 순회하지 않고 프로세스의 열린 파일 핸들과 매핑 경로를 검사하여 해당 볼륨의 파일을 찾습니다.
 - 포트: IP Helper의 TCP/UDP IPv4/IPv6 owner-PID 표를 읽습니다. 와일드카드 바인딩과 조회 가능한 소유 모듈 이름도 표시합니다.
 - 서비스: Service Control Manager로 PID에 연결된 서비스 이름·상태를 조회하고 선택한 서비스를 중지합니다.
@@ -38,6 +41,8 @@ unlockcat unlock service Spooler
 ## 정확도와 제한
 
 검색은 특정 순간의 상태입니다. Windows에서 보호하는 프로세스, 접근이 거부된 핸들, 커널 드라이버가 유지하는 점유는 사용자 모드 프로그램이 모두 열람하거나 강제 종료할 수 없습니다. 이런 경우 **검색 불완전** 또는 Windows 오류를 표시합니다. 파일/디스크 잠금이 해제되었는지는 종료 후 재검색으로 확인합니다.
+
+폴더 검색은 폴더 자체를 연 핸들과 물리적으로 그 아래에 있는 파일을 포함합니다. 폴더 안의 접합점이나 심볼릭 링크가 다른 경로를 가리키면 해당 외부 트리까지 따라가지는 않습니다.
 
 공유 `svchost.exe`의 PID만으로는 어떤 서비스가 정확히 포트를 열었는지 단정할 수 없습니다. IP Helper의 소유 모듈 이름은 실행 파일·서비스·구성 요소 중 하나일 수 있으므로 그대로 표시합니다. 파일에 대해서 Restart Manager가 서비스 이름을 반환하면 그 이름을 **확인됨**으로 표시합니다. 서비스를 중지할 수 없더라도 별도 프로세스 강제 종료 버튼은 사용할 수 있지만, 공유 호스트의 다른 서비스도 함께 종료될 수 있습니다.
 
@@ -51,10 +56,10 @@ IPv6 와일드카드 소켓이 IPv4 주소도 점유하는지는 소켓의 dual-
 dotnet build src/UnlockCat/UnlockCat.csproj -c Release
 dotnet build src/UnlockCat.Cli/UnlockCat.Cli.csproj -c Release
 dotnet run --project tests/UnlockCat.Smoke/UnlockCat.Smoke.csproj -c Release
-dotnet publish src/UnlockCat/UnlockCat.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o dist
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/Build-Dist.ps1
 ```
 
-게시 결과는 `dist/UnlockCat.exe` 단일 파일입니다. .NET 런타임을 별도로 설치하지 않은 Windows 11 22H2 x64에서 실행하도록 런타임과 네이티브 라이브러리를 묶었습니다. 관리자 권한이 필요하므로 실행 시 Windows UAC 창이 뜹니다. 코드 서명 인증서는 포함되지 않았으므로 Windows 보안 설정에 따라 새 실행 파일에 대한 경고가 나타날 수 있습니다. GUI 실행 파일의 아이콘은 [angry-cat.ico](src/UnlockCat/Assets/angry-cat.ico)입니다. 생성 원본 PNG도 함께 보관합니다.
+게시 스크립트는 단일 파일 호스트에 관리자 권한 매니페스트를 넣고 `dist/UnlockCat.exe`를 만듭니다. .NET 런타임을 별도로 설치하지 않은 Windows 11 22H2 x64에서 실행하도록 런타임과 네이티브 라이브러리를 묶었습니다. 실행 시 Windows UAC 창이 뜹니다. 코드 서명 인증서는 포함되지 않았으므로 Windows 보안 설정에 따라 새 실행 파일에 대한 경고가 나타날 수 있습니다. GUI 실행 파일의 아이콘은 [angry-cat.ico](src/UnlockCat/Assets/angry-cat.ico)입니다. 생성 원본 PNG도 함께 보관합니다.
 
 ## 주요 Windows API
 

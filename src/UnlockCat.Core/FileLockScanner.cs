@@ -73,6 +73,8 @@ public static class FileLockScanner
     private const uint SePrivilegeEnabled = 0x02;
     private static readonly IntPtr InvalidHandle = new(-1);
 
+    private enum ScanScope { File, Directory, Volume }
+
     public static LockScanResult ScanFile(string path)
     {
         var scan = new ScanBuilder();
@@ -90,12 +92,44 @@ public static class FileLockScanner
 
         if (Directory.Exists(target.FullPath))
         {
-            scan.Errors.Add("ScanFile requires a file path; use ScanVolume for a whole volume.");
+            scan.Errors.Add("ScanFile requires a file path; use ScanDirectory for a folder.");
             return scan.Build();
         }
 
         ScanRestartManager(target.FullPath, scan);
-        ScanProcesses(target, volumeScan: false, scan);
+        ScanProcesses(target, ScanScope.File, scan);
+        return scan.Build();
+    }
+
+    /// <summary>
+    /// Finds file handles and mapped files in a folder subtree in one pass over
+    /// process snapshots. The selected folder itself is included because an open
+    /// directory handle can prevent renaming or removing it. Matching the resolved
+    /// NT path avoids enumerating files and works even in inaccessible subfolders.
+    /// Nested junctions and symbolic links into other trees are not followed.
+    /// </summary>
+    public static LockScanResult ScanDirectory(string path)
+    {
+        var scan = new ScanBuilder();
+        if (!OperatingSystem.IsWindows())
+        {
+            scan.Errors.Add("Directory scans require Windows.");
+            return scan.Build();
+        }
+
+        if (!TryResolveTarget(path, out var target, out var error))
+        {
+            scan.Errors.Add(error);
+            return scan.Build();
+        }
+
+        if (!Directory.Exists(target.FullPath))
+        {
+            scan.Errors.Add($"Directory does not exist or cannot be accessed: {target.FullPath}");
+            return scan.Build();
+        }
+
+        ScanProcesses(target, ScanScope.Directory, scan);
         return scan.Build();
     }
 
@@ -121,7 +155,7 @@ public static class FileLockScanner
             return scan.Build();
         }
 
-        ScanProcesses(target, volumeScan: true, scan);
+        ScanProcesses(target, ScanScope.Volume, scan);
         return scan.Build();
     }
 
@@ -194,7 +228,7 @@ public static class FileLockScanner
         }
     }
 
-    private static void ScanProcesses(Target target, bool volumeScan, ScanBuilder scan)
+    private static void ScanProcesses(Target target, ScanScope scope, ScanBuilder scan)
     {
         if (IntPtr.Size != 8 || Marshal.SizeOf<PssHandleEntry>() != 136 ||
             Marshal.SizeOf<PssVaSpaceEntry>() != 80)
@@ -226,7 +260,7 @@ public static class FileLockScanner
                 if (pid == 0) // Idle has no user-mode handles.
                     continue;
 
-                ScanProcess(pid, target, volumeScan, scan);
+                ScanProcess(pid, target, scope, scan);
             }
         }
         finally
@@ -236,7 +270,7 @@ public static class FileLockScanner
         }
     }
 
-    private static void ScanProcess(int pid, Target target, bool volumeScan, ScanBuilder scan)
+    private static void ScanProcess(int pid, Target target, ScanScope scope, ScanBuilder scan)
     {
         // Obtain only the rights that are needed. VM_READ is optional: a process
         // may still disclose its file handles when mapped-section capture is denied.
@@ -279,9 +313,9 @@ public static class FileLockScanner
 
             try
             {
-                WalkHandles(processHandle, snapshot, pid, startedAt, target, volumeScan, scan);
+                WalkHandles(processHandle, snapshot, pid, startedAt, target, scope, scan);
                 if (scannedMappings)
-                    WalkMappings(snapshot, pid, startedAt, target, volumeScan, scan);
+                    WalkMappings(snapshot, pid, startedAt, target, scope, scan);
                 else
                     scan.Inaccessible.Add(new InaccessibleProcess(pid, "Mapped sections could not be scanned (PROCESS_VM_READ or snapshot denied)."));
             }
@@ -300,7 +334,7 @@ public static class FileLockScanner
 
     private static void WalkHandles(
         IntPtr processHandle, IntPtr snapshot, int pid, DateTime? startedAt,
-        Target target, bool volumeScan, ScanBuilder scan)
+        Target target, ScanScope scope, ScanBuilder scan)
     {
         var status = PssWalkMarkerCreate(IntPtr.Zero, out var marker);
         if (status != 0)
@@ -330,9 +364,9 @@ public static class FileLockScanner
                 var name = (entry.Flags & PssHandleHaveName) != 0 && entry.ObjectName != IntPtr.Zero
                     ? ReadWideString(entry.ObjectName, entry.ObjectNameLength)
                     : "";
-                if (Matches(name, target, volumeScan))
+                if (Matches(name, target, scope))
                 {
-                    scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target), "file-handle", startedAt));
+                    scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target, scope), "file-handle", startedAt));
                     continue;
                 }
 
@@ -356,7 +390,7 @@ public static class FileLockScanner
                     // The same file can be open through another hard-link name, or
                     // through a reparse alias. Its volume serial and 128-bit file ID
                     // identify the object even when the two paths differ.
-                    var sameFile = !volumeScan && target.FileIdentity.HasValue &&
+                    var sameFile = scope == ScanScope.File && target.FileIdentity.HasValue &&
                         TryGetFileIdentity(duplicate, out var identity) &&
                         identity.Equals(target.FileIdentity.Value);
                     var finalPath = new StringBuilder(32768);
@@ -372,8 +406,8 @@ public static class FileLockScanner
                     }
 
                     name = finalPath.ToString();
-                    if (sameFile || Matches(name, target, volumeScan))
-                        scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target), "file-handle", startedAt));
+                    if (sameFile || Matches(name, target, scope))
+                        scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target, scope), "file-handle", startedAt));
                 }
                 finally { CloseHandle(duplicate); }
             }
@@ -389,7 +423,7 @@ public static class FileLockScanner
     }
 
     private static void WalkMappings(
-        IntPtr snapshot, int pid, DateTime? startedAt, Target target, bool volumeScan, ScanBuilder scan)
+        IntPtr snapshot, int pid, DateTime? startedAt, Target target, ScanScope scope, ScanBuilder scan)
     {
         var status = PssWalkMarkerCreate(IntPtr.Zero, out var marker);
         if (status != 0)
@@ -415,8 +449,8 @@ public static class FileLockScanner
                 if (entry.MappedFileName == IntPtr.Zero || entry.MappedFileNameLength == 0)
                     continue;
                 var name = ReadWideString(entry.MappedFileName, entry.MappedFileNameLength);
-                if (Matches(name, target, volumeScan))
-                    scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target), "mapped-section", startedAt));
+                if (Matches(name, target, scope))
+                    scan.AddOwner(new LockOwner(pid, ToFriendlyPath(name, target, scope), "mapped-section", startedAt));
             }
         }
         finally
@@ -425,21 +459,28 @@ public static class FileLockScanner
         }
     }
 
-    private static bool Matches(string objectName, Target target, bool volumeScan)
+    private static bool Matches(string objectName, Target target, ScanScope scope)
     {
         var ntName = NormalizeToNtPath(objectName);
         if (ntName is null)
             return false;
-        if (volumeScan)
+        if (scope == ScanScope.Volume)
             return ntName.Equals(target.NtVolume, StringComparison.OrdinalIgnoreCase)
                 || ntName.StartsWith(target.NtVolume + "\\", StringComparison.OrdinalIgnoreCase);
+        if (scope == ScanScope.Directory)
+            return ntName.Equals(target.NtPath, StringComparison.OrdinalIgnoreCase)
+                || ntName.StartsWith(target.NtPath + "\\", StringComparison.OrdinalIgnoreCase)
+                || ntName.StartsWith(target.NtPath + ":", StringComparison.OrdinalIgnoreCase);
         return ntName.Equals(target.NtPath, StringComparison.OrdinalIgnoreCase)
             || ntName.StartsWith(target.NtPath + ":", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string ToFriendlyPath(string objectName, Target target)
+    private static string ToFriendlyPath(string objectName, Target target, ScanScope scope)
     {
         var ntName = NormalizeToNtPath(objectName);
+        if (scope == ScanScope.Directory && ntName is not null &&
+            ntName.StartsWith(target.NtPath, StringComparison.OrdinalIgnoreCase))
+            return target.FullPath.TrimEnd('\\') + ntName[target.NtPath.Length..];
         if (ntName is null || !ntName.StartsWith(target.NtVolume, StringComparison.OrdinalIgnoreCase))
             return objectName;
         var relative = ntName[target.NtVolume.Length..].TrimStart('\\');

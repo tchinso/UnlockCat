@@ -1,10 +1,11 @@
 using UnlockCat.Core;
 
 if (args.Length != 3 || !new[] { "scan", "unlock" }.Contains(args[0], StringComparer.OrdinalIgnoreCase) ||
-    !new[] { "file", "volume", "port", "service" }.Contains(args[1], StringComparer.OrdinalIgnoreCase))
+    !new[] { "file", "folder", "volume", "port", "service" }.Contains(args[1], StringComparer.OrdinalIgnoreCase))
 {
-    Console.Error.WriteLine("Usage: unlockcat scan|unlock file|volume|port|service <path|drive|endpoint|name>");
+    Console.Error.WriteLine("Usage: unlockcat scan|unlock file|folder|volume|port|service <path|drive|endpoint|name>");
     Console.Error.WriteLine("Examples: unlockcat scan file C:\\temp\\busy.txt");
+    Console.Error.WriteLine("          unlockcat scan folder C:\\temp\\project");
     Console.Error.WriteLine("          unlockcat unlock volume E:\\");
     Console.Error.WriteLine("          unlockcat unlock port localhost:5000");
     Console.Error.WriteLine("          unlockcat unlock service Spooler");
@@ -108,7 +109,13 @@ static ScanResult Scan(string kind, string target)
     }
     else
     {
-        var result = kind == "file" ? FileLockScanner.ScanFile(target) : FileLockScanner.ScanVolume(target);
+        var result = kind switch
+        {
+            "file" => FileLockScanner.ScanFile(target),
+            "folder" => FileLockScanner.ScanDirectory(target),
+            "volume" => FileLockScanner.ScanVolume(target),
+            _ => throw new InvalidOperationException($"Unknown target kind: {kind}")
+        };
         foreach (var owner in result.Owners)
             Add(owner.Pid, $"{owner.Kind}: {owner.EvidencePath}");
         foreach (var owner in result.Owners)
