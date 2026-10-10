@@ -37,6 +37,12 @@ File.WriteAllText(temporaryFile, "UnlockCat smoke test");
 File.WriteAllText(siblingFile, "Outside the selected folder");
 try
 {
+    var explorerPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+    Assert(ProcessControl.IsWindowsExplorerImage(explorerPath.ToUpperInvariant()),
+        "Windows Explorer path matching should ignore case.");
+    Assert(!ProcessControl.IsWindowsExplorerImage(Path.Combine(temporaryDirectory, "explorer.exe")),
+        "An unrelated explorer.exe must not be treated as the Windows shell.");
+
     {
         var holder = Launch("hold-file", temporaryFile);
         Assert(holder.StandardOutput.ReadLine() == "READY", "File holder did not start.");
@@ -63,8 +69,10 @@ try
         Assert(ProcessControl.Terminate(wrongIdentity).Status == TerminationStatus.IdentityChanged,
             "PID reuse protection did not reject a wrong creation time.");
         Assert(!holder.HasExited, "Wrong identity terminated the file holder.");
-        var terminated = ProcessControl.Terminate(identity);
-        Assert(terminated.Succeeded, $"File holder termination failed: {terminated.Message}");
+        var claimedExplorer = identity with { Name = "explorer.exe", ImagePath = explorerPath };
+        var terminated = ProcessControl.TerminateOrRestartExplorer(claimedExplorer);
+        Assert(terminated.Status == TerminationStatus.Terminated,
+            $"The actual image path was not checked before termination: {terminated.Message}");
         Assert(!FileLockScanner.ScanFile(temporaryFile).Owners.Any(o => o.Pid == holder.Id),
             "File holder was still reported after termination.");
         Console.WriteLine("Verified force termination and release: PASS");

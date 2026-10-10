@@ -57,13 +57,13 @@ try
             continue;
         }
 
-        var result = ProcessControl.Terminate(identity, TimeSpan.FromSeconds(10));
+        var result = ProcessControl.TerminateOrRestartExplorer(identity, TimeSpan.FromSeconds(10));
         Console.WriteLine($"PID {pid}: {result.Message}");
         failed |= !result.Succeeded;
     }
 
     var after = Scan(kind, target);
-    Console.WriteLine("After termination:");
+    Console.WriteLine("After action:");
     Print(after);
     return after.ConfirmedPids.Count == 0 && after.Complete && !failed ? 0 : 3;
 }

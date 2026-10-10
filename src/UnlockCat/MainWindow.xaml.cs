@@ -264,7 +264,7 @@ public partial class MainWindow : Window
         if (_busy || selected.Length == 0 || _lastTarget is null)
             return;
 
-        SetBusy(true, "종료 전에 점유 상태를 다시 확인 중입니다…");
+        SetBusy(true, "종료 또는 탐색기 재시작 전에 점유 상태를 다시 확인 중입니다…");
         try
         {
             var kind = _lastKind;
@@ -289,7 +289,7 @@ public partial class MainWindow : Window
                         continue;
                     }
 
-                    var result = ProcessControl.Terminate(row.Process, TimeSpan.FromSeconds(10));
+                    var result = ProcessControl.TerminateOrRestartExplorer(row.Process, TimeSpan.FromSeconds(10));
                     results.Add($"PID {row.ProcessId} ({row.ProcessName}): {result.Message}");
                 }
                 return results;
@@ -503,7 +503,8 @@ public partial class MainWindow : Window
         public string ProcessStatus => !ConfirmedOwnership ? "점유 가능성만 있음" :
             ProcessId is 0 or 4 ? "시스템 보호" :
             Process.IsCritical == true ? "중요 프로세스" :
-            Process.CanTerminate ? "종료 가능" : "신원 확인 불가";
+            !Process.CanTerminate ? "신원 확인 불가" :
+            ProcessControl.IsWindowsExplorerImage(Process.ImagePath) ? "종료 후 재시작" : "종료 가능";
     }
 
     private enum TargetKind { File, Directory, Volume, Port }

@@ -61,8 +61,10 @@
       </Grid.ColumnDefinitions>
       <Button x:Name="ScanButton" Grid.Column="0" Content="점유 프로세스 검색" Background="#DFF1E9" Foreground="#0E543E" BorderBrush="#88B8A3" Click="Scan_Click" />
       <Button x:Name="StopServiceButton" Grid.Column="1" Content="서비스 중지" Click="StopServices_Click" IsEnabled="False" />
-      <Button x:Name="KillSelectedButton" Grid.Column="2" Content="선택 프로세스 강제 종료" Click="KillSelected_Click" IsEnabled="False" />
-      <Button x:Name="KillAllButton" Grid.Column="3" Content="모두 강제 종료" Click="KillAll_Click" IsEnabled="False" />
+      <Button x:Name="KillSelectedButton" Grid.Column="2" Content="선택 강제 종료/재시작" Click="KillSelected_Click" IsEnabled="False"
+              ToolTip="일반 프로세스는 강제 종료하고 C:\Windows\explorer.exe는 종료 후 다시 시작합니다." />
+      <Button x:Name="KillAllButton" Grid.Column="3" Content="모두 강제 종료/재시작" Click="KillAll_Click" IsEnabled="False"
+              ToolTip="일반 프로세스는 강제 종료하고 C:\Windows\explorer.exe는 종료 후 다시 시작합니다." />
       <TextBlock x:Name="StatusText" Grid.Column="4" Text="대상을 선택하고 검색하세요." TextAlignment="Right"
                  VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
     </Grid>
@@ -92,13 +94,13 @@
         <TextBox x:Name="EvidenceBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                  BorderThickness="0" MinHeight="0" />
       </GroupBox>
-      <GroupBox Grid.Column="1" Header="검색 및 종료 기록" Margin="6,0,0,0">
+      <GroupBox Grid.Column="1" Header="검색 및 작업 기록" Margin="6,0,0,0">
         <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                  BorderThickness="0" MinHeight="0" />
       </GroupBox>
     </Grid>
 
     <TextBlock Grid.Row="5" Margin="0,12,0,0" Foreground="{StaticResource MutedBrush}" FontSize="11"
-               Text="관리자 권한으로 실행됩니다. 공유 서비스 호스트의 서비스는 별도로 선택해 중지할 수 있습니다. 종료 후 자동으로 다시 검색합니다." />
+               Text="관리자 권한으로 실행됩니다. 공유 서비스 호스트의 서비스는 별도로 선택해 중지할 수 있습니다. C:\Windows\explorer.exe는 종료 후 다시 시작합니다. 작업 후 자동으로 다시 검색합니다." />
   </Grid>
 </Window>

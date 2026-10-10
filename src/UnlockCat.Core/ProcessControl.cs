@@ -33,6 +33,8 @@ public sealed record ProcessInfo(
 public enum TerminationStatus
 {
     Terminated,
+    Restarted,
+    RestartFailed,
     AlreadyExited,
     IdentityChanged,
     Protected,
@@ -45,9 +47,10 @@ public enum TerminationStatus
 public sealed record TerminationResult(
     int ProcessId,
     TerminationStatus Status,
-    int? Win32Error = null)
+    int? Win32Error = null,
+    string? Detail = null)
 {
-    public bool Succeeded => Status is TerminationStatus.Terminated or TerminationStatus.AlreadyExited;
+    public bool Succeeded => Status is TerminationStatus.Terminated or TerminationStatus.Restarted or TerminationStatus.AlreadyExited;
 
     public string Message
     {
@@ -56,6 +59,8 @@ public sealed record TerminationResult(
             var description = Status switch
             {
                 TerminationStatus.Terminated => "Process terminated and its exit was confirmed.",
+                TerminationStatus.Restarted => "Windows Explorer terminated and its restart was requested.",
+                TerminationStatus.RestartFailed => "Windows Explorer terminated, but its restart failed.",
                 TerminationStatus.AlreadyExited => "The original process has already exited.",
                 TerminationStatus.IdentityChanged => "PID now belongs to a different process. Scan again.",
                 TerminationStatus.Protected => "Refusing to terminate the current or a critical system process.",
@@ -64,9 +69,10 @@ public sealed record TerminationResult(
                 TerminationStatus.TimedOut => "Termination was requested, but process exit was not confirmed before timeout.",
                 _ => "Process termination failed."
             };
-            return Win32Error is int error
+            var message = Win32Error is int error
                 ? $"{description} Windows error {error}: {new Win32Exception(error).Message}"
                 : description;
+            return Detail is null ? message : $"{message} {Detail}";
         }
     }
 }
@@ -83,7 +89,11 @@ public static class ProcessControl
     private const uint Synchronize = 0x00100000;
     private const uint TokenAdjustPrivileges = 0x0020;
     private const uint TokenQuery = 0x0008;
+    private const uint TokenDuplicate = 0x0002;
+    private const uint TokenAssignPrimary = 0x0001;
     private const uint SePrivilegeEnabled = 0x00000002;
+    private const uint CreateUnicodeEnvironment = 0x00000400;
+    private const uint Infinite = 0xFFFFFFFF;
 
     private const int ErrorAccessDenied = 5;
     private const int ErrorInvalidParameter = 87;
@@ -96,6 +106,12 @@ public static class ProcessControl
 
     private static readonly Lazy<(bool Enabled, int Error)> DebugPrivilege =
         new(EnableDebugPrivilegeCore);
+
+    private static readonly string WindowsExplorerPath =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
+
+    public static bool IsWindowsExplorerImage(string? imagePath) =>
+        string.Equals(imagePath, WindowsExplorerPath, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Enables SeDebugPrivilege if the running token already has it. This cannot grant
@@ -168,6 +184,16 @@ public static class ProcessControl
     /// waits for its process handle to signal. A missing creation time is refused.
     /// </summary>
     public static TerminationResult Terminate(ProcessInfo target, TimeSpan? timeout = null)
+        => TerminateCore(target, timeout, restartExplorer: false);
+
+    /// <summary>
+    /// Terminates the confirmed process instance and relaunches the Windows shell
+    /// when its image is the actual Windows-directory explorer.exe.
+    /// </summary>
+    public static TerminationResult TerminateOrRestartExplorer(ProcessInfo target, TimeSpan? timeout = null)
+        => TerminateCore(target, timeout, restartExplorer: true);
+
+    private static TerminationResult TerminateCore(ProcessInfo target, TimeSpan? timeout, bool restartExplorer)
     {
         ArgumentNullException.ThrowIfNull(target);
 
@@ -211,28 +237,114 @@ public static class ProcessControl
             if (priorWait == WaitFailed)
                 return new TerminationResult(processId, TerminationStatus.Failed, Marshal.GetLastWin32Error());
 
-            if (!TerminateProcess(handle, 1))
+            IntPtr explorerToken = IntPtr.Zero;
+            string? explorerPath = null;
+            if (restartExplorer)
             {
-                var terminateError = Marshal.GetLastWin32Error();
-                if (WaitForSingleObject(handle, 0) == WaitObject0)
-                    return new TerminationResult(processId, TerminationStatus.AlreadyExited);
-                return new TerminationResult(
-                    processId,
-                    terminateError == ErrorAccessDenied ? TerminationStatus.AccessDenied : TerminationStatus.Failed,
-                    terminateError);
+                var imagePath = QueryImagePath(handle, out var pathError);
+                if (imagePath is null)
+                    return new TerminationResult(processId, TerminationStatus.CannotVerifyIdentity, pathError,
+                        "The executable path could not be checked before termination.");
+
+                if (IsWindowsExplorerImage(imagePath))
+                {
+                    if (!ProcessIdToSessionId((uint)processId, out var targetSession) ||
+                        !ProcessIdToSessionId((uint)Environment.ProcessId, out var currentSession))
+                        return new TerminationResult(processId, TerminationStatus.CannotVerifyIdentity,
+                            Marshal.GetLastWin32Error(), "Windows Explorer's session could not be checked.");
+                    if (targetSession != currentSession)
+                        return new TerminationResult(processId, TerminationStatus.Protected, null,
+                            "Windows Explorer belongs to another session and cannot be restarted here.");
+
+                    if (!OpenProcessToken(handle, TokenQuery | TokenDuplicate | TokenAssignPrimary, out explorerToken))
+                        return new TerminationResult(processId, TerminationStatus.AccessDenied,
+                            Marshal.GetLastWin32Error(), "Could not save Windows Explorer's user token for restart.");
+                    explorerPath = imagePath;
+                }
             }
 
-            return WaitForSingleObject(handle, waitMilliseconds) switch
+            try
             {
-                WaitObject0 => new TerminationResult(processId, TerminationStatus.Terminated),
-                WaitTimeout => new TerminationResult(processId, TerminationStatus.TimedOut),
-                _ => new TerminationResult(processId, TerminationStatus.Failed, Marshal.GetLastWin32Error())
-            };
+                if (!TerminateProcess(handle, 1))
+                {
+                    var terminateError = Marshal.GetLastWin32Error();
+                    if (WaitForSingleObject(handle, 0) == WaitObject0)
+                        return explorerPath is null
+                            ? new TerminationResult(processId, TerminationStatus.AlreadyExited)
+                            : RestartExplorer(processId, explorerPath, explorerToken);
+                    return new TerminationResult(
+                        processId,
+                        terminateError == ErrorAccessDenied ? TerminationStatus.AccessDenied : TerminationStatus.Failed,
+                        terminateError);
+                }
+
+                // A second Explorer must not start while the old shell can still
+                // accept its launch request. Wait for its actual exit before relaunch.
+                var waitResult = WaitForSingleObject(handle,
+                    explorerPath is null ? waitMilliseconds : Infinite);
+                if (waitResult != WaitObject0)
+                    return waitResult == WaitTimeout
+                        ? new TerminationResult(processId, TerminationStatus.TimedOut)
+                        : new TerminationResult(processId, TerminationStatus.Failed, Marshal.GetLastWin32Error());
+
+                return explorerPath is null
+                    ? new TerminationResult(processId, TerminationStatus.Terminated)
+                    : RestartExplorer(processId, explorerPath, explorerToken);
+            }
+            finally
+            {
+                if (explorerToken != IntPtr.Zero)
+                    CloseHandle(explorerToken);
+            }
         }
         finally
         {
             CloseHandle(handle);
         }
+    }
+
+    private static TerminationResult RestartExplorer(int processId, string imagePath, IntPtr token)
+    {
+        var startup = new StartupInfo
+        {
+            Size = (uint)Marshal.SizeOf<StartupInfo>(),
+            Desktop = @"winsta0\default"
+        };
+        if (CreateProcessWithTokenW(token, 0, imagePath, null, 0, IntPtr.Zero, null,
+            ref startup, out var started))
+        {
+            CloseStartedProcess(started);
+            return new TerminationResult(processId, TerminationStatus.Restarted);
+        }
+
+        var tokenLaunchError = Marshal.GetLastWin32Error();
+        if (!CreateEnvironmentBlock(out var environment, token, false))
+            return new TerminationResult(processId, TerminationStatus.RestartFailed,
+                Marshal.GetLastWin32Error(),
+                $"Token launch also failed with Windows error {tokenLaunchError}.");
+
+        try
+        {
+            if (CreateProcessAsUserW(token, imagePath, null, IntPtr.Zero, IntPtr.Zero, false,
+                CreateUnicodeEnvironment, environment, null, ref startup, out started))
+            {
+                CloseStartedProcess(started);
+                return new TerminationResult(processId, TerminationStatus.Restarted);
+            }
+            var fallbackError = Marshal.GetLastWin32Error();
+            return new TerminationResult(processId, TerminationStatus.RestartFailed, fallbackError,
+                $"Token launch also failed with Windows error {tokenLaunchError}.");
+        }
+        finally
+        {
+            DestroyEnvironmentBlock(environment);
+        }
+    }
+
+    private static void CloseStartedProcess(ProcessInformation started)
+    {
+        CloseHandle(started.Thread);
+        CloseHandle(started.Process);
     }
 
     private static uint ToWaitMilliseconds(TimeSpan timeout)
@@ -335,6 +447,38 @@ public static class ProcessControl
         public uint Attributes;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct StartupInfo
+    {
+        public uint Size;
+        public string? Reserved;
+        public string? Desktop;
+        public string? Title;
+        public uint X;
+        public uint Y;
+        public uint XSize;
+        public uint YSize;
+        public uint XCountChars;
+        public uint YCountChars;
+        public uint FillAttribute;
+        public uint Flags;
+        public ushort ShowWindow;
+        public ushort Reserved2;
+        public IntPtr ReservedPointer;
+        public IntPtr StandardInput;
+        public IntPtr StandardOutput;
+        public IntPtr StandardError;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ProcessInformation
+    {
+        public IntPtr Process;
+        public IntPtr Thread;
+        public uint ProcessId;
+        public uint ThreadId;
+    }
+
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, uint processId);
 
@@ -365,11 +509,40 @@ public static class ProcessControl
     private static extern bool TerminateProcess(IntPtr process, uint exitCode);
 
     [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ProcessIdToSessionId(uint processId, out uint sessionId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
     [DllImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool OpenProcessToken(IntPtr process, uint desiredAccess, out IntPtr token);
+
+    [DllImport("advapi32.dll", EntryPoint = "CreateProcessWithTokenW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateProcessWithTokenW(
+        IntPtr token, uint logonFlags, string applicationName, string? commandLine,
+        uint creationFlags, IntPtr environment, string? currentDirectory,
+        ref StartupInfo startupInfo, out ProcessInformation processInformation);
+
+    [DllImport("advapi32.dll", EntryPoint = "CreateProcessAsUserW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateProcessAsUserW(
+        IntPtr token, string applicationName, string? commandLine,
+        IntPtr processAttributes, IntPtr threadAttributes,
+        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags,
+        IntPtr environment, string? currentDirectory,
+        ref StartupInfo startupInfo, out ProcessInformation processInformation);
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateEnvironmentBlock(
+        out IntPtr environment, IntPtr token, [MarshalAs(UnmanagedType.Bool)] bool inherit);
+
+    [DllImport("userenv.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DestroyEnvironmentBlock(IntPtr environment);
 
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
