@@ -51,10 +51,10 @@ IPv6 와일드카드 소켓이 IPv4 주소도 점유하는지는 소켓의 dual-
 dotnet build src/UnlockCat/UnlockCat.csproj -c Release
 dotnet build src/UnlockCat.Cli/UnlockCat.Cli.csproj -c Release
 dotnet run --project tests/UnlockCat.Smoke/UnlockCat.Smoke.csproj -c Release
-dotnet publish src/UnlockCat/UnlockCat.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o artifacts/UnlockCat-win-x64
+dotnet publish src/UnlockCat/UnlockCat.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false -o dist
 ```
 
-GUI 실행 파일의 아이콘은 [angry-cat.ico](src/UnlockCat/Assets/angry-cat.ico)입니다. 생성 원본 PNG도 함께 보관합니다.
+게시 결과는 `dist/UnlockCat.exe` 단일 파일입니다. .NET 런타임을 별도로 설치하지 않은 Windows 11 22H2 x64에서 실행하도록 런타임과 네이티브 라이브러리를 묶었습니다. 관리자 권한이 필요하므로 실행 시 Windows UAC 창이 뜹니다. 코드 서명 인증서는 포함되지 않았으므로 Windows 보안 설정에 따라 새 실행 파일에 대한 경고가 나타날 수 있습니다. GUI 실행 파일의 아이콘은 [angry-cat.ico](src/UnlockCat/Assets/angry-cat.ico)입니다. 생성 원본 PNG도 함께 보관합니다.
 
 ## 주요 Windows API
 
