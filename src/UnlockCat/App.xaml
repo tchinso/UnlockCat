@@ -1,0 +1,40 @@
+<Application x:Class="UnlockCat.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+  <Application.Resources>
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#10151D" />
+    <SolidColorBrush x:Key="PanelBrush" Color="#1A222D" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#9BACBD" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#80E2C1" />
+    <Style TargetType="Window">
+      <Setter Property="Background" Value="{StaticResource BackgroundBrush}" />
+      <Setter Property="Foreground" Value="#F1F5F9" />
+      <Setter Property="FontFamily" Value="Malgun Gothic" />
+    </Style>
+    <Style TargetType="TextBlock">
+      <Setter Property="Foreground" Value="#F1F5F9" />
+    </Style>
+    <Style TargetType="Button">
+      <Setter Property="Background" Value="#2C3A49" />
+      <Setter Property="Foreground" Value="#F1F5F9" />
+      <Setter Property="BorderBrush" Value="#435466" />
+      <Setter Property="Padding" Value="14,8" />
+      <Setter Property="Margin" Value="0,0,8,0" />
+      <Setter Property="MinHeight" Value="36" />
+    </Style>
+    <Style TargetType="TextBox">
+      <Setter Property="Background" Value="#111923" />
+      <Setter Property="Foreground" Value="#F1F5F9" />
+      <Setter Property="BorderBrush" Value="#425466" />
+      <Setter Property="Padding" Value="9,7" />
+      <Setter Property="MinHeight" Value="36" />
+    </Style>
+    <Style TargetType="ComboBox">
+      <Setter Property="Background" Value="#E6EEF6" />
+      <Setter Property="Foreground" Value="#10151D" />
+      <Setter Property="MinHeight" Value="36" />
+    </Style>
+  </Application.Resources>
+</Application>
+
