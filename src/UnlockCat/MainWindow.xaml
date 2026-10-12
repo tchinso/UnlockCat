@@ -13,13 +13,18 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <StackPanel Grid.Row="0" Margin="0,0,0,16" Orientation="Horizontal">
-      <Image Source="Assets/angry-cat.png" Width="56" Height="56" Margin="0,0,13,0" />
-      <StackPanel VerticalAlignment="Center">
-        <TextBlock Text="UnlockCat" FontSize="30" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
-        <TextBlock Text="파일 · 이동식 디스크 · 포트를 점유한 프로세스 찾기" Foreground="{StaticResource MutedBrush}" FontSize="13" />
+    <DockPanel Grid.Row="0" Margin="0,0,0,16">
+      <Button x:Name="StartExplorerButton" DockPanel.Dock="Right" Content="탐색기 수동 시작"
+              VerticalAlignment="Center" Margin="12,0,0,0" Click="StartExplorer_Click"
+              ToolTip="프로세스를 종료하지 않고 C:\Windows\explorer.exe를 직접 실행합니다. 관리자 권한으로 실행될 수 있습니다." />
+      <StackPanel Orientation="Horizontal">
+        <Image Source="Assets/angry-cat.png" Width="56" Height="56" Margin="0,0,13,0" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="UnlockCat" FontSize="30" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+          <TextBlock Text="파일 · 이동식 디스크 · 포트를 점유한 프로세스 찾기" Foreground="{StaticResource MutedBrush}" FontSize="13" />
+        </StackPanel>
       </StackPanel>
-    </StackPanel>
+    </DockPanel>
 
     <TabControl x:Name="TargetTabs" Grid.Row="1" Height="116" SelectionChanged="TargetTabs_SelectionChanged">
       <TabItem Header="파일·폴더">

@@ -77,6 +77,23 @@ public sealed record TerminationResult(
     }
 }
 
+public sealed record ExplorerStartResult(bool Succeeded, int? Win32Error = null)
+{
+    public string Message
+    {
+        get
+        {
+            const string description = "Windows Explorer launch was requested using this application's token (which may be elevated).";
+            if (Succeeded)
+                return description;
+
+            if (Win32Error is not int error)
+                return "Windows Explorer could not be started.";
+            return $"Windows Explorer could not be started. Windows error {error}: {new Win32Exception(error).Message}";
+        }
+    }
+}
+
 /// <summary>
 /// Uses one process handle for identity, critical-process, termination, and exit checks.
 /// This prevents a PID recycled after discovery from targeting a different process.
@@ -193,6 +210,17 @@ public static class ProcessControl
     public static TerminationResult TerminateOrRestartExplorer(ProcessInfo target, TimeSpan? timeout = null)
         => TerminateCore(target, timeout, restartExplorer: true);
 
+    /// <summary>
+    /// Starts the Windows-directory Explorer without terminating any process. This
+    /// uses the application's token, so an elevated caller starts it elevated.
+    /// </summary>
+    public static ExplorerStartResult StartWindowsExplorer()
+    {
+        return StartExplorerWithCurrentToken(WindowsExplorerPath, out var error)
+            ? new ExplorerStartResult(true)
+            : new ExplorerStartResult(false, error);
+    }
+
     private static TerminationResult TerminateCore(ProcessInfo target, TimeSpan? timeout, bool restartExplorer)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -305,11 +333,7 @@ public static class ProcessControl
 
     private static TerminationResult RestartExplorer(int processId, string imagePath, IntPtr token)
     {
-        var startup = new StartupInfo
-        {
-            Size = (uint)Marshal.SizeOf<StartupInfo>(),
-            Desktop = @"winsta0\default"
-        };
+        var startup = ExplorerStartupInfo();
         if (CreateProcessWithTokenW(token, 0, imagePath, null, 0, IntPtr.Zero, null,
             ref startup, out var started))
         {
@@ -318,28 +342,65 @@ public static class ProcessControl
         }
 
         var tokenLaunchError = Marshal.GetLastWin32Error();
-        if (!CreateEnvironmentBlock(out var environment, token, false))
-            return new TerminationResult(processId, TerminationStatus.RestartFailed,
-                Marshal.GetLastWin32Error(),
-                $"Token launch also failed with Windows error {tokenLaunchError}.");
-
-        try
+        int asUserError;
+        var secondStep = "CreateProcessAsUserW";
+        if (CreateEnvironmentBlock(out var environment, token, false))
         {
-            if (CreateProcessAsUserW(token, imagePath, null, IntPtr.Zero, IntPtr.Zero, false,
-                CreateUnicodeEnvironment, environment, null, ref startup, out started))
+            try
             {
-                CloseStartedProcess(started);
-                return new TerminationResult(processId, TerminationStatus.Restarted);
+                if (CreateProcessAsUserW(token, imagePath, null, IntPtr.Zero, IntPtr.Zero, false,
+                    CreateUnicodeEnvironment, environment, null, ref startup, out started))
+                {
+                    CloseStartedProcess(started);
+                    return new TerminationResult(processId, TerminationStatus.Restarted);
+                }
+                asUserError = Marshal.GetLastWin32Error();
             }
-            var fallbackError = Marshal.GetLastWin32Error();
-            return new TerminationResult(processId, TerminationStatus.RestartFailed, fallbackError,
-                $"Token launch also failed with Windows error {tokenLaunchError}.");
+            finally
+            {
+                DestroyEnvironmentBlock(environment);
+            }
         }
-        finally
+        else
         {
-            DestroyEnvironmentBlock(environment);
+            secondStep = "CreateEnvironmentBlock";
+            asUserError = Marshal.GetLastWin32Error();
         }
+
+        // Token launches can require SeImpersonate/SeIncreaseQuota privileges or
+        // the Secondary Logon service. CreateProcessW needs neither, although it
+        // inherits this application's (possibly elevated) security context.
+        if (StartExplorerWithCurrentToken(imagePath, out var currentTokenError))
+            return new TerminationResult(processId, TerminationStatus.Restarted, null,
+                $"Explorer was launched using this application's token after CreateProcessWithTokenW " +
+                $"failed with Windows error {tokenLaunchError} and {secondStep} failed with Windows error {asUserError}. " +
+                "Explorer may be elevated.");
+
+        return new TerminationResult(processId, TerminationStatus.RestartFailed, currentTokenError,
+            $"CreateProcessWithTokenW failed with Windows error {tokenLaunchError}; " +
+            $"{secondStep} failed with Windows error {asUserError}.");
     }
+
+    private static bool StartExplorerWithCurrentToken(string imagePath, out int win32Error)
+    {
+        var startup = ExplorerStartupInfo();
+        if (CreateProcessW(imagePath, null, IntPtr.Zero, IntPtr.Zero, false, 0,
+            IntPtr.Zero, null, ref startup, out var started))
+        {
+            CloseStartedProcess(started);
+            win32Error = 0;
+            return true;
+        }
+
+        win32Error = Marshal.GetLastWin32Error();
+        return false;
+    }
+
+    private static StartupInfo ExplorerStartupInfo() => new()
+    {
+        Size = (uint)Marshal.SizeOf<StartupInfo>(),
+        Desktop = @"winsta0\default"
+    };
 
     private static void CloseStartedProcess(ProcessInformation started)
     {
@@ -530,6 +591,15 @@ public static class ProcessControl
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CreateProcessAsUserW(
         IntPtr token, string applicationName, string? commandLine,
+        IntPtr processAttributes, IntPtr threadAttributes,
+        [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags,
+        IntPtr environment, string? currentDirectory,
+        ref StartupInfo startupInfo, out ProcessInformation processInformation);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateProcessW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool CreateProcessW(
+        string applicationName, string? commandLine,
         IntPtr processAttributes, IntPtr threadAttributes,
         [MarshalAs(UnmanagedType.Bool)] bool inheritHandles, uint creationFlags,
         IntPtr environment, string? currentDirectory,

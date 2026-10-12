@@ -259,6 +259,30 @@ public partial class MainWindow : Window
         await KillAsync(_rows.ToArray());
     }
 
+    private async void StartExplorer_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy)
+            return;
+
+        SetBusy(true, "Windows 탐색기를 직접 시작 중입니다…");
+        try
+        {
+            var result = await Task.Run(ProcessControl.StartWindowsExplorer);
+            AppendLog($"Windows 탐색기 수동 시작: {result.Message}");
+            StatusText.Text = result.Succeeded ? "Windows 탐색기 시작 요청 완료" : "Windows 탐색기 시작 실패";
+            if (!result.Succeeded)
+                MessageBox.Show(this, result.Message, "UnlockCat", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+    }
+
     private async Task KillAsync(OwnerRow[] selected)
     {
         if (_busy || selected.Length == 0 || _lastTarget is null)
@@ -447,6 +471,7 @@ public partial class MainWindow : Window
         if (status is not null)
             StatusText.Text = status;
         ScanButton.IsEnabled = !busy;
+        StartExplorerButton.IsEnabled = !busy;
         TargetTabs.IsEnabled = !busy;
         UpdateButtons();
     }
